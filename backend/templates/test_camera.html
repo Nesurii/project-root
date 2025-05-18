@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Camera Test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <style>
+    body { text-align: center; font-family: sans-serif; }
+    video { width: 90%; max-width: 600px; border: 1px solid #ccc; margin-top: 20px; }
+    #status { margin-top: 10px; color: green; }
+  </style>
+</head>
+<body>
+  <h2>Camera Access Test</h2>
+  <video id="video" autoplay playsinline muted></video>
+  <div id="status">Initializing...</div>
+
+  <script>
+    const video = document.getElementById("video");
+    const status = document.getElementById("status");
+
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then(stream => {
+          video.srcObject = stream;
+          status.textContent = "✅ Camera is working!";
+        })
+        .catch(err => {
+          console.error("Camera access error:", err);
+          status.textContent = "❌ Error: " + err.message;
+        });
+    } else {
+      status.textContent = "❌ getUserMedia not supported in this browser.";
+    }
+  </script>
+</body>
+</html>

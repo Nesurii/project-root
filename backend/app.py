@@ -1,24 +1,20 @@
-from flask import Flask, render_template, request, jsonify 
+from flask import Flask, jsonify, redirect, render_template, request, send_from_directory
+from flask_cors import CORS
+from flask_socketio import SocketIO, emit
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.models import load_model
-from tensorflow.keras.layers import Layer
-from flask_socketio import SocketIO, emit
-from flask_cors import CORS  # Import CORS
-from tensorflow.keras.layers import Dense, Multiply, Layer
-from tensorflow.keras.layers import Lambda
 
-import os
-#ngrok http --url=classic-proven-kingfish.ngrok-free.app 80
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', template_folder='templates')
 app.config['SECRET_KEY'] = 'secret!'
-# Set up CORS for regular HTTP routes
+
 CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins for all routes
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Set up SocketIO with CORS
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+Dense = tf.keras.layers.Dense
+Multiply = tf.keras.layers.Multiply
+Layer = tf.keras.layers.Layer
+Lambda = tf.keras.layers.Lambda
 
-# Create a custom AttentionLayer exactly as in your original code
 class AttentionLayer(Layer):
     def __init__(self, **kwargs):
         super(AttentionLayer, self).__init__(**kwargs)
@@ -33,23 +29,46 @@ class AttentionLayer(Layer):
         weighted = self.multiply([inputs, attention_weights])
         return tf.reduce_sum(weighted, axis=1)
 
-# Load your actions array
-actions = np.array([
-    "hello", "fine", "goodbye", "name", "friend", "one", "sick", "help", "deaf", "hearing",
-    "what", "from", "email", "weather", "rain", "three", "tuesday", "april", "child", "old",
-    "9oclock", "5dollars", "8hours", "soon", "lastweek", "family",  "mother", "boyfriend", 
-    "smart", "pretty","room", "teacher", "physics", "popular", "bug", "softball", "everynight", 
-    "shampoo", "washdishes", "clean", "freckles", "curlyhair", "dress", "doctor", "hurt", "island",
-    "nurse", "hamburger", "crocodile", "giraffe"
-])
+# Define labels as used during training
+labels = ["FINE1", "DEAF1", "SOON1", "DOCTOR1", "WHAT2", "RAIN", "NAME", "MOTHER", 
+    "DRESS", "HEARING", "HELLO", "5DOLLARS", "9OCLOCK", "SICK", "CHILD", "THREE", 
+    "SMART", "EVERYNIGHT", "HELP", "ONE", "TUESDAY", "FROM", "WHAT1", "GIRAFFE", 
+    "ALLIGATOR", "FRECKLES", "CURLYHAIR", "WASHDISHES", "POPULAR", "PHYSICS", 
+    "8HOUR", "CLEAN", "TEACHER", "BUG", "HAMBURGER", "EMAIL", "APRIL", "OLD", 
+    "SOFTBALL", "GOODBYE", "NURSE", "PRETTY", "ROOM", "FAMILY", "LASTWEEK", 
+    "BOYFRIEND", "WEATHER", "ISLAND", "HURT", "FRIEND", "SHAMPOO", "DOCTOR2", 
+    "DEAF2", "SOON2", "FINE2"]  
 
-# Load model
-model = None
-
-def load_lstm_model():
+# Load the model
+def load_model(): 
     global model
-    model = load_model('lstm_model.h5', custom_objects={'AttentionLayer': AttentionLayer})
+    model = tf.keras.models.load_model('lstm_model81.h5', custom_objects={'AttentionLayer': AttentionLayer})
     print("Model loaded successfully!")
+
+# @socketio.on("predict")
+# def handle_prediction(data):
+#     print("Received prediction request")
+#     try:
+#         frames = np.array(data["frames"], dtype=np.float32)
+#         if frames.shape != (60, 126):
+#             emit("prediction", {"error": "Invalid input shape"})
+#             return
+#         frames = np.expand_dims(frames, axis=0)  # Shape: (1, 60, 126)
+#         prediction = model.predict(frames)[0]
+#         label = labels[np.argmax(prediction)]
+#         confidence = float(np.max(prediction))
+#         emit("prediction", {"label": label, "confidence": confidence})
+#     except Exception as e:
+#         emit("prediction", {"error": str(e)})
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
+@app.route("/test_camera")
+def test_camera():
+    return render_template("test_camera.html")
 
 # Keep the HTTP endpoint for compatibility
 @app.route('/predict', methods=['POST'])
@@ -73,27 +92,27 @@ def process_prediction(keypoints_data):
         sequence = np.array(keypoints_data)
         
         # Ensure we have the right shape for prediction
-        if sequence.shape[0] != 60:
-            return {'error': 'Need exactly 60 frames of keypoints'}
+        if sequence.shape != (60, 126):
+            return {'error': 'Expected input shape (60, 126)'}
         
         # Add batch dimension
-        sequence_batch = np.expand_dims(sequence, axis=0)
+        sequence_batch = np.expand_dims(sequence, axis=0)  # Shape: (1, 60, 126)
         res = model.predict(sequence_batch)[0]
         
         # Get the predicted action
-        predicted_action = actions[np.argmax(res)]
+        predicted_action = labels[np.argmax(res)]
         confidence = float(res[np.argmax(res)])
         
         # Get top predictions
         top_indices = np.argsort(res)[::-1][:5]  # Get top 5 predictions
-        top_actions = [actions[i] for i in top_indices]
+        top_actions = [labels[i] for i in top_indices]
         top_probabilities = [float(res[i]) for i in top_indices]
         
         return {
             'prediction': predicted_action,
             'confidence': confidence,
             'top_predictions': [{'action': action, 'probability': prob} 
-                              for action, prob in zip(top_actions, top_probabilities)]
+                                for action, prob in zip(top_actions, top_probabilities)]
         }
     except Exception as e:
         return {'error': str(e)}
@@ -129,12 +148,7 @@ def handle_connect():
 def handle_disconnect():
     print('Client disconnected')
 
-if __name__ == '__main__':
-    # Initialize model
-    load_lstm_model()
-    
-    # Run Flask app with SocketIO - bind to all interfaces
-    # Make sure to use 0.0.0.0 to accept connections from any IP
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
 
-
+if __name__ == "__main__":
+    load_model()
+    socketio.run(app, host="0.0.0.0", port=5080)
