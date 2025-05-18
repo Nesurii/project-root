@@ -89,6 +89,7 @@ function onResults(results) {
 
   // Send batch of 60 frames to backend via Socket.IO
   if (frameBuffer.length === 60) {
+    console.log("[DEBUG] Emitting predict_sign with batch size:", frameBuffer.length);
     socket.emit("predict_sign", { keypoints: frameBuffer });
     frameBuffer = [];
   }
