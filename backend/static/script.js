@@ -10,7 +10,12 @@ let isRunning = false;
 let frameBuffer = [];
 
 // Initialize Socket.IO client
-const socket = io("https://b985-103-200-33-5.ngrok-free.app/");
+// const socket = io("wss://b985-103-200-33-5.ngrok-free.app/")
+const socket = io('wss://b985-103-200-33-5.ngrok-free.app/', {
+  transports: ['websocket'],
+  secure: true,
+  upgrade: false // disable polling fallback
+});
 
 // UI controls
 document.getElementById("start").onclick = () => {
@@ -56,11 +61,13 @@ function extractKeypoints(results) {
   const lm = (list) =>
     list ? list.map(p => [p.x, p.y, p.z].map(v => v ?? 0)).flat() : Array(21 * 3).fill(0);
 
-  const pose = results.poseLandmarks ? results.poseLandmarks.map(p => [p.x, p.y, p.z]).flat() : Array(33 * 3).fill(0);
+  // const pose = results.poseLandmarks ? results.poseLandmarks.map(p => [p.x, p.y, p.z]).flat() : Array(33 * 3).fill(0);
   const lh = lm(results.leftHandLandmarks);
   const rh = lm(results.rightHandLandmarks);
 
-  return [...pose, ...lh, ...rh];  // 33*3 + 21*3 + 21*3 = 126
+  const keypoints = [...pose, ...lh, ...rh];  // 33*3 + 21*3 + 21*3 = 126
+  console.log("[DEBUG] Single keypoints:", keypoints);
+  return keypoints;
 }
 
 // Called on every MediaPipe results event
@@ -73,8 +80,8 @@ function onResults(results) {
   canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
   if (showLandmarks) {
-    drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 2 });
-    drawLandmarks(canvasCtx, results.poseLandmarks, { color: '#00FF00', radius: 4 });
+    // drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 2 });
+    // drawLandmarks(canvasCtx, results.poseLandmarks, { color: '#00FF00', radius: 4 });
 
     drawConnectors(canvasCtx, results.leftHandLandmarks, HAND_CONNECTIONS, { color: '#FF0000', lineWidth: 2 });
     drawLandmarks(canvasCtx, results.leftHandLandmarks, { color: '#FF0000', radius: 2 });
@@ -90,6 +97,8 @@ function onResults(results) {
   // Send batch of 60 frames to backend via Socket.IO
   if (frameBuffer.length === 60) {
     console.log("[DEBUG] Emitting predict_sign with batch size:", frameBuffer.length);
+    console.log("Emitting predict_sign", frameBuffer);
+
     socket.emit("predict_sign", { keypoints: frameBuffer });
     frameBuffer = [];
   }
@@ -100,6 +109,13 @@ function onResults(results) {
 // Socket.IO event listeners
 
 socket.on("connect", () => {
+  if (window.flutter_inappwebview) {
+    console.log("Calling Flutter from JS manually");
+    // window.flutter_inappwebview.callHandler('sendPredictionToFlutter', {
+    //   prediction: "Test",
+    //   confidence: 0.99
+    // });
+  }
   console.log("Socket.IO connected");
   resultDiv.textContent = "Socket.IO connected, ready to predict.";
 });
@@ -115,11 +131,19 @@ socket.on("connect_error", (err) => {
 });
 
 socket.on("prediction_result", (data) => {
-  // Display the prediction label and confidence
-  resultDiv.textContent = `Prediction: ${data.prediction} (${(data.confidence * 100).toFixed(1)}%)`;
-   // Send prediction to Flutter app via flutter_inappwebview handler
+  console.log("Received prediction_result:", data);
+  const label = data.prediction || "Unknown";
+  const confidence = data.confidence || 0;
+
+  // Update the DOM
+  resultDiv.textContent = `Prediction: ${label} (${(confidence * 100).toFixed(1)}%)`;
+
+  // Send to Flutter WebView
   if (window.flutter_inappwebview) {
-    window.flutter_inappwebview.callHandler('sendPredictionToFlutter', data);
+    window.flutter_inappwebview.callHandler('sendPredictionToFlutter', {
+      prediction: label,
+      confidence: confidence
+    });
   }
 });
 
